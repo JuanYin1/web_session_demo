@@ -1,0 +1,444 @@
+<html lang="en"><head><meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Aurora Input Starter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="min-h-screen w-full relative antialiased" style="background:black;font-family:'Geist',system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif">
+      <!-- Animated Aurora Background -->
+      <div id="container" style="width:100vw;height:100vh;position:fixed;inset:0;z-index:1;"></div>
+    
+      <!-- Input Starter Overlay -->
+      <div id="main-container" class="min-h-screen flex flex-col justify-center items-center p-6 relative z-10">
+        <div id="input-wrapper" class="w-full max-w-2xl">
+          <div class="mx-auto flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl px-4 py-3 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.6)] ring-1 ring-white/10 hover:ring-white/20 transition">
+            <i data-lucide="message-square-text" class="shrink-0 text-white/70" style="width:20px;height:20px;"></i>
+            <div class="relative flex-1">
+              <div id="editable" contenteditable="true" role="textbox" aria-label="Start typing" class="outline-none text-[15px] leading-6 text-white caret-white min-h-[28px]" style="letter-spacing:0">
+              </div>
+              <span id="placeholder" class="absolute left-0 top-0 text-white/60 pointer-events-none select-none text-[15px] leading-6" style="transition:opacity 220ms ease">Hi, how are you doing? </span>
+            </div>
+            <button id="sendBtn" class="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[13px] text-white/80 hover:text-white hover:bg-white/10 active:scale-[0.99] transition" type="button">
+              <span>Send</span>
+              <i data-lucide="arrow-right" class="text-white/80" style="width:18px;height:18px;"></i>
+            </button>
+          </div>
+          <div class="mt-2 flex justify-end">
+            <span class="text-[12px] text-white/40">Esc to clear</span>
+          </div>
+        </div>
+        
+        <!-- Response content will be added here dynamically -->
+        <div id="response-content" class="w-full max-w-2xl mt-8 mb-20" style="display: none;"></div>
+      </div>
+    
+      <!-- Scripts -->
+      <script src="https://unpkg.com/lucide@latest"></script>
+      <script>
+        // Lucide icons
+        document.addEventListener('DOMContentLoaded', () => {
+          if (window.lucide) {
+            lucide.createIcons({ attrs: { 'stroke-width': 1.5 } });
+          }
+        });
+    
+        // Aurora background (kept from original)
+        let scene, camera, renderer, material;
+        let startTime = Date.now();
+    
+        const vertexShader = `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `;
+    
+        const fragmentShader = `
+          uniform float iTime;
+          uniform vec2 iResolution;
+          varying vec2 vUv;
+    
+          #define S smoothstep
+    
+          vec4 Line(vec2 uv, float speed, float height, vec3 col) {
+              uv.y += S(1., 0., abs(uv.x)) * sin(iTime * speed + uv.x * height) * 0.2;
+              return vec4(S(0.06 * S(0.2, 0.9, abs(uv.x)), 0., abs(uv.y) - 0.004) * col, 1.0) * S(1., 0.3, abs(uv.x));
+          }
+    
+          void main() {
+              vec2 uv = (vUv - 0.5) * vec2(iResolution.x / iResolution.y, 1.0);
+              vec4 O = vec4(0.);
+              
+              for (float i = 0.; i <= 5.; i += 1.) {
+                  float t = i / 5.;
+                  float timeOffset = iTime * 0.3 + t * 2.0;
+                  
+                  vec3 auroraColor = vec3(
+                      0.1 + 0.6 * sin(timeOffset + t * 3.14159),
+                      0.3 + 0.7 * sin(timeOffset * 1.3 + t * 2.0),
+                      0.4 + 0.6 * cos(timeOffset * 0.8 + t * 1.5)
+                  );
+                  
+                  auroraColor = mix(auroraColor, vec3(0.0, 0.8, 0.6), sin(timeOffset + t) * 0.5 + 0.5);
+                  auroraColor = mix(auroraColor, vec3(0.7, 0.2, 0.9), cos(timeOffset * 0.7 + t * 1.2) * 0.3 + 0.3);
+                  
+                  O += Line(uv, 1. + t * 0.8, 4. + t, auroraColor);
+              }
+              
+              gl_FragColor = O;
+          }
+        `;
+    
+        function initAurora() {
+          scene = new THREE.Scene();
+          camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+          renderer = new THREE.WebGLRenderer({ antialias: true });
+          renderer.setPixelRatio(Math.min(window.devicePixelRatio * 2, 3));
+          renderer.setSize(window.innerWidth, window.innerHeight);
+          const mount = document.getElementById('container');
+          mount.appendChild(renderer.domElement);
+    
+          material = new THREE.ShaderMaterial({
+            vertexShader: vertexShader,
+            fragmentShader: fragmentShader,
+            uniforms: {
+              iTime: { value: 0 },
+              iResolution: { value: new THREE.Vector2(window.innerWidth * 2, window.innerHeight * 2) }
+            }
+          });
+    
+          const geometry = new THREE.PlaneGeometry(2, 2);
+          const plane = new THREE.Mesh(geometry, material);
+          scene.add(plane);
+    
+          animateAurora();
+        }
+    
+        function animateAurora() {
+          requestAnimationFrame(animateAurora);
+          material.uniforms.iTime.value = (Date.now() - startTime) * 0.001;
+          renderer.render(scene, camera);
+        }
+    
+        function onWindowResize() {
+          if (!renderer || !material) return;
+          renderer.setSize(window.innerWidth, window.innerHeight);
+          material.uniforms.iResolution.value.set(window.innerWidth * 2, window.innerHeight * 2);
+        }
+    
+        window.addEventListener('resize', onWindowResize);
+        initAurora();
+    
+        // Placeholder typing effect (replaces flashing)
+        const editable = document.getElementById('editable');
+        const placeholder = document.getElementById('placeholder');
+        const sendBtn = document.getElementById('sendBtn');
+    
+        // Cache the full placeholder text and start with empty to type it in
+        const fullPlaceholderText = placeholder.textContent;
+        placeholder.textContent = '';
+    
+        let typeTimer = null;
+        let typeIndex = 0;
+        let typeDirection = 1; // 1 = typing, -1 = deleting, 0 = paused
+    
+        function startBlink() {
+          stopBlink(); // ensure only one runner
+          placeholder.style.opacity = '1';
+    
+          const typeSpeed = 55; // ms per char
+          const pauseEnd = 1200; // pause when finished typing
+          const pauseStart = 300; // pause before typing again
+    
+          function tick() {
+            if (typeDirection === 1) {
+              typeIndex++;
+              if (typeIndex >= fullPlaceholderText.length) {
+                typeIndex = fullPlaceholderText.length;
+                placeholder.textContent = fullPlaceholderText.slice(0, typeIndex);
+                typeDirection = 0; // pause
+                typeTimer = setTimeout(() => {
+                  typeDirection = -1; // start deleting after pause
+                  tick();
+                }, pauseEnd);
+                return;
+              }
+              placeholder.textContent = fullPlaceholderText.slice(0, typeIndex);
+              typeTimer = setTimeout(tick, typeSpeed);
+            } else if (typeDirection === -1) {
+              typeIndex--;
+              if (typeIndex <= 0) {
+                typeIndex = 0;
+                placeholder.textContent = '';
+                typeDirection = 0; // short pause before typing again
+                typeTimer = setTimeout(() => {
+                  typeDirection = 1;
+                  tick();
+                }, pauseStart);
+                return;
+              }
+              placeholder.textContent = fullPlaceholderText.slice(0, typeIndex);
+              typeTimer = setTimeout(tick, typeSpeed);
+            } else {
+              // paused state; do nothing (timeouts above will resume)
+            }
+          }
+    
+          // If resuming from a hidden state and no text, ensure we start typing
+          if (typeDirection === 0 && typeIndex === 0 && placeholder.style.display !== 'none') {
+            typeDirection = 1;
+          }
+          tick();
+        }
+    
+        function stopBlink() {
+          if (typeTimer) {
+            clearTimeout(typeTimer);
+            typeTimer = null;
+          }
+        }
+    
+        function hasText(node) {
+          if (!node) return false;
+          return node.textContent.trim().length > 0;
+        }
+    
+        function updateState() {
+          const show = !hasText(editable);
+          placeholder.style.display = show ? 'block' : 'none';
+          if (show) {
+            startBlink();
+          } else {
+            stopBlink();
+          }
+        }
+    
+        editable.addEventListener('input', updateState);
+        editable.addEventListener('focus', () => {
+          if (!hasText(editable)) startBlink();
+        });
+        editable.addEventListener('blur', () => {
+          if (!hasText(editable)) {
+            placeholder.style.opacity = '1';
+            startBlink();
+          }
+        });
+    
+        // Backend integration variables
+        let sessionId = null;
+        let isLoading = false;
+
+        // API functions
+        async function createSession() {
+          try {
+            const response = await fetch('http://127.0.0.1:5001/api/session', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await response.json();
+            sessionId = data.session_id;
+            console.log('✅ Session created:', sessionId);
+            return data;
+          } catch (error) {
+            console.error('Failed to create session:', error);
+            showError('Failed to create session');
+            throw error;
+          }
+        }
+
+        async function sendMessage(message) {
+          try {
+            const response = await fetch('http://127.0.0.1:5001/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ session_id: sessionId, message })
+            });
+            const data = await response.json();
+            console.log('✅ Response received:', data.response);
+            return data;
+          } catch (error) {
+            console.error('Failed to send message:', error);
+            showError('Failed to send message');
+            throw error;
+          }
+        }
+
+        // Error handling
+        function showError(message) {
+          const errorDiv = document.createElement('div');
+          errorDiv.className = 'fixed top-4 left-4 right-4 z-20 mx-auto max-w-2xl bg-red-500/20 backdrop-blur-xl rounded-xl p-4 border border-red-400/30';
+          errorDiv.innerHTML = `
+            <div class="flex items-center">
+              <div class="text-red-100">
+                <p class="font-semibold">Something went wrong</p>
+                <p class="text-sm text-red-200 mt-1">${message}</p>
+              </div>
+              <button onclick="this.parentElement.parentElement.parentElement.remove()" class="ml-auto text-red-200 hover:text-white text-xl font-bold rounded-full w-8 h-8 flex items-center justify-center hover:bg-red-400/20 transition-all duration-200">×</button>
+            </div>
+          `;
+          document.body.appendChild(errorDiv);
+          setTimeout(() => errorDiv.remove(), 5000);
+        }
+
+        // Enhanced interactions with backend
+        sendBtn.addEventListener('click', async () => {
+          const text = editable.textContent.trim();
+          if (!text || isLoading || !sessionId) return;
+
+          isLoading = true;
+          sendBtn.disabled = true;
+          sendBtn.innerHTML = '<span>Sending...</span><i data-lucide="loader" class="text-white/80 animate-spin" style="width:18px;height:18px;"></i>';
+          
+          try {
+            // Input will be repositioned by showStreamingResponse function
+
+            // Send message to backend
+            const response = await sendMessage(text);
+
+            // Clear input
+            editable.textContent = '';
+            updateState();
+
+            // Show streaming response
+            showStreamingResponse(response.response);
+            
+          } catch (error) {
+            console.error('Error sending message:', error);
+            // Reset input position on error
+            const mainContainer = document.getElementById('main-container');
+            const responseContent = document.getElementById('response-content');
+            mainContainer.style.justifyContent = 'center';
+            mainContainer.style.paddingTop = '1.5rem';
+            mainContainer.style.minHeight = '100vh';
+            responseContent.style.display = 'none';
+          } finally {
+            isLoading = false;
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = '<span>Send</span><i data-lucide="arrow-right" class="text-white/80" style="width:18px;height:18px;"></i>';
+            lucide.createIcons({ attrs: { 'stroke-width': 1.5 } });
+            editable.focus();
+          }
+        });
+    
+    
+        // Streaming response functionality
+        function showStreamingResponse(text) {
+          const mainContainer = document.getElementById('main-container');
+          const responseContent = document.getElementById('response-content');
+          
+          // Move input to top
+          mainContainer.style.justifyContent = 'flex-start';
+          mainContainer.style.paddingTop = '2rem';
+          mainContainer.style.minHeight = 'auto';
+          mainContainer.style.transition = 'all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+          
+          // Clear any existing response and show response area
+          responseContent.innerHTML = '';
+          responseContent.style.display = 'block';
+
+          // Create response text element
+          const responseContainer = document.createElement('div');
+          responseContainer.id = 'streaming-response';
+          responseContainer.innerHTML = `
+            <div id="response-text" class="text-white/75 text-lg leading-relaxed font-light" style="letter-spacing: 0.025em; line-height: 1.8; font-size: 18px;"></div>
+          `;
+
+          responseContent.appendChild(responseContainer);
+
+          // Stream the text
+          const responseTextElement = document.getElementById('response-text');
+          let index = 0;
+
+          function streamText() {
+            if (index < text.length) {
+              responseTextElement.textContent += text[index];
+              index++;
+              
+              // Auto-scroll to bottom as text is added
+              window.scrollTo({
+                top: document.body.scrollHeight,
+                behavior: 'smooth'
+              });
+              
+              setTimeout(streamText, 30); // 30ms delay between characters
+            } else {
+              // Add cursor blink at the end briefly
+              const cursor = document.createElement('span');
+              cursor.className = 'inline-block w-0.5 h-6 bg-white/70 ml-1 animate-pulse';
+              responseTextElement.appendChild(cursor);
+              setTimeout(() => cursor.remove(), 1000);
+            }
+          }
+
+          streamText();
+        }
+
+        // Enhanced keyboard interactions - replace the existing keydown handler
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !isLoading && editable === document.activeElement) {
+            e.preventDefault();
+            sendBtn.click();
+          } else if (e.key === 'Escape') {
+            editable.textContent = '';
+            updateState();
+            // Reset UI state
+            const mainContainer = document.getElementById('main-container');
+            const responseContent = document.getElementById('response-content');
+            
+            if (mainContainer) {
+              mainContainer.style.justifyContent = 'center';
+              mainContainer.style.paddingTop = '1.5rem';
+              mainContainer.style.minHeight = '100vh';
+            }
+            if (responseContent) {
+              responseContent.style.display = 'none';
+              responseContent.innerHTML = '';
+            }
+          }
+        });
+
+        // Initialize session and state
+        async function initialize() {
+          try {
+            await createSession();
+            updateState();
+            console.log('✅ Application initialized with session:', sessionId);
+          } catch (error) {
+            console.error('❌ Failed to initialize:', error);
+            showError('Failed to initialize. Please refresh the page.');
+          }
+        }
+
+        // Start the app
+        initialize();
+      </script>
+      
+      <!-- Add CSS animations -->
+      <style>
+        @keyframes slideInUp {
+          from {
+            transform: translateY(20px);
+            opacity: 0;
+          }
+          to {
+            transform: translateY(0);
+            opacity: 1;
+          }
+        }
+        
+        .animate-spin {
+          animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
+        }
+      </style>
+    
+    my</body></html>
