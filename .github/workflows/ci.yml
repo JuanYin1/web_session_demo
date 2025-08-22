@@ -1,0 +1,39 @@
+name: Basic CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        cd backend
+        pip install -r requirements.txt
+
+    - name: Test Flask app imports
+      run: |
+        cd backend
+        python -c "from app import app; print('✅ Flask app imports successfully')"
+
+    - name: Check HTML file exists
+      run: |
+        test -f new_ui.html && echo "✅ HTML file exists" || exit 1
+
+    - name: Validate API endpoints
+      run: |
+        grep -q "api/session" new_ui.html && echo "✅ Session API found"
+        grep -q "api/chat" new_ui.html && echo "✅ Chat API found"
